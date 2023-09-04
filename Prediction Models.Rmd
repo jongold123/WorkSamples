@@ -1,0 +1,3337 @@
+---
+title: "Preditions and Extrapolation"
+author: "Group 4"
+
+---
+
+# Model 1: Rotten Totomatoes Score"
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_2.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+```
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+#create the linear regression - since IMDb score is the keystone of our analysis, and since it is the most robust data source, we will use this as the basis for our predictions
+
+#since rotten tomatoes scores and IMDb scores are off by a facotr of 10, we will divide the Rotten Tomatoes scores by 10, so they are on the same scale
+traindf$Rotten_Tomatoes_Score <- as.numeric(traindf$Rotten_Tomatoes_Score) / 10
+
+#Rotten_Tomatoes_Score - Training Data
+
+train_model<-lm(Rotten_Tomatoes_Score~IMDb_Score, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Rotten_Tomatoes_Score,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Rotten_Tomatoes_Score_Ext<-traindf$Rotten_Tomatoes_Score
+traindf$Rotten_Tomatoes_Score_Ext[is.na(traindf$Rotten_Tomatoes_Score_Ext)] <- train_predictions[is.na(traindf$Rotten_Tomatoes_Score)]
+traindf$Rotten_Tomatoes_Score[is.na(traindf$Rotten_Tomatoes_Score)] <- 0
+
+
+#plot prediction
+model <- lm(Rotten_Tomatoes_Score~IMDb_Score, data=traindf)
+#Add predictions 
+pred.int <- predict(model, interval = "prediction")
+mydata <- cbind(traindf, pred.int)
+#Regression line of prediction
+p <- ggplot(mydata, aes(Rotten_Tomatoes_Score_Ext, IMDb_Score)) +
+  geom_point() +
+  stat_smooth(method = lm)
+# 3. Add prediction intervals
+p + geom_line(aes(y = lwr), color = "red", linetype = "dashed")+
+    geom_line(aes(y = upr), color = "red", linetype = "dashed")+
+  ggtitle("Train: Prediction results")
+```
+
+## Caclulate stats for Train Data
+```{r}
+
+#calculate MSE
+train_MSE<-mean((traindf$Rotten_Tomatoes_Score - traindf$Rotten_Tomatoes_Score_Ext)^2)
+train_MSE
+
+#calculate RMSE
+RMSE(traindf$Rotten_Tomatoes_Score, traindf$Rotten_Tomatoes_Score_Ext)
+train_RMSE<-RMSE(traindf$Rotten_Tomatoes_Score, traindf$Rotten_Tomatoes_Score_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Rotten_Tomatoes_Score, Rotten_Tomatoes_Score_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Rotten_Tomatoes_Score, Rotten_Tomatoes_Score_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+#since rotten tomatoes scores and IMDb scores are off by a facotr of 10, we will divide the Rotten Tomatoes scores by 10, so they are on the same scale
+testdf$Rotten_Tomatoes_Score <- as.numeric(testdf$Rotten_Tomatoes_Score) / 10
+
+#Rotten_Tomatoes_Score - Testing Data
+
+test_model<-lm(Rotten_Tomatoes_Score~IMDb_Score, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Rotten_Tomatoes_Score,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+
+
+
+#add predictions as new column
+testdf$Rotten_Tomatoes_Score_Ext<-testdf$Rotten_Tomatoes_Score
+testdf$Rotten_Tomatoes_Score_Ext[is.na(testdf$Rotten_Tomatoes_Score_Ext)] <- test_predictions[is.na(testdf$Rotten_Tomatoes_Score)]
+testdf$Rotten_Tomatoes_Score[is.na(testdf$Rotten_Tomatoes_Score)] <- 0
+
+#plot prediction
+model <- lm(Rotten_Tomatoes_Score~IMDb_Score, data=testdf)
+#Add predictions 
+pred.int <- predict(model, interval = "prediction")
+mydata <- cbind(testdf, pred.int)
+#Regression line of prediction
+p <- ggplot(mydata, aes(Rotten_Tomatoes_Score_Ext, IMDb_Score)) +
+  geom_point() +
+  stat_smooth(method = lm)
+# 3. Add prediction intervals
+p + geom_line(aes(y = lwr), color = "red", linetype = "dashed")+
+    geom_line(aes(y = upr), color = "red", linetype = "dashed")+
+  ggtitle("Prediction results")
+```
+
+## Calculate stats for Test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Rotten_Tomatoes_Score - testdf$Rotten_Tomatoes_Score_Ext)^2)
+test_MSE
+
+#calculate RMSE
+RMSE(testdf$Rotten_Tomatoes_Score, testdf$Rotten_Tomatoes_Score_Ext)
+test_RMSE<-RMSE(testdf$Rotten_Tomatoes_Score, testdf$Rotten_Tomatoes_Score_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Rotten_Tomatoes_Score, Rotten_Tomatoes_Score_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Rotten_Tomatoes_Score, Rotten_Tomatoes_Score_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#Rotten_Tomatoes_Score_Ext
+data_country <- df_merge[, c("country_1","Rotten_Tomatoes_Score_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+#IMDb_Score
+data_country <- df_merge[, c("country_1","IMDb_Score")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+#Rotten_Tomatoes_Score_Ext vs. IMDb_Score
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge2$Rotten_Tomatoes_Score_Ext - df_merge2$IMDb_Score
+data_country <- df_merge2[, c("country_1","Variance")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+
+
+```
+## By Genre
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Rotten_Tomatoes_Score_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+#IMDb_Score
+data_genre <- df_merge[, c("genres_x_1","IMDb_Score")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+#Rotten_Tomatoes_Score_Ext vs. IMDb_Score
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge2$Rotten_Tomatoes_Score_Ext - df_merge2$IMDb_Score
+data_genre <- df_merge2[, c("genres_x_1","Variance")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+
+
+```
+
+## By Release_year
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_year <- df_merge[, c("Release_year","Rotten_Tomatoes_Score_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+#IMDb_Score
+data_year <- df_merge[, c("Release_year","IMDb_Score")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+#Rotten_Tomatoes_Score_Ext vs. IMDb_Score
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge2$Rotten_Tomatoes_Score_Ext - df_merge2$IMDb_Score
+data_year <- df_merge2[, c("Release_year","Variance")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+
+
+```
+
+
+```{r}
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_3.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+
+# Model 2 Hidden Gem Score"
+
+
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_3.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+```
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+#create the linear regression - since IMDb score is the keystone of our analysis, and since it is the most robust data source, we will use this as the basis for our predictions
+
+#Hidden_Gem_Score - Training Data
+
+train_model<-lm(Hidden_Gem_Score~IMDb_Score, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Hidden_Gem_Score,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Hidden_Gem_Score_Ext<-traindf$Hidden_Gem_Score
+traindf$Hidden_Gem_Score_Ext[is.na(traindf$Hidden_Gem_Score_Ext)] <- train_predictions[is.na(traindf$Hidden_Gem_Score)]
+traindf$Hidden_Gem_Score[is.na(traindf$Hidden_Gem_Score)] <- 0
+
+
+#plot prediction
+model <- lm(Hidden_Gem_Score~IMDb_Score, data=traindf)
+#Add predictions 
+pred.int <- predict(model, interval = "prediction")
+mydata <- cbind(traindf, pred.int)
+#Regression line of prediction
+p <- ggplot(mydata, aes(Hidden_Gem_Score_Ext, IMDb_Score)) +
+  geom_point() +
+  stat_smooth(method = lm)
+# 3. Add prediction intervals
+p + geom_line(aes(y = lwr), color = "red", linetype = "dashed")+
+    geom_line(aes(y = upr), color = "red", linetype = "dashed")+
+  ggtitle("Prediction results")
+```
+
+## Caclulate stats for Train Data
+```{r}
+
+#calculate MSE
+mean((traindf$Hidden_Gem_Score - traindf$Hidden_Gem_Score_Ext)^2)
+train_MSE<-mse(traindf$Hidden_Gem_Score, predict(train_model , traindf))
+train_MSE
+
+#calculate RMSE
+train_RMSE<-RMSE(traindf$Hidden_Gem_Score, traindf$Hidden_Gem_Score_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Hidden_Gem_Score, Hidden_Gem_Score_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Hidden_Gem_Score, Hidden_Gem_Score_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+#Hidden_Gem_Score - Testing Data
+
+test_model<-lm(Hidden_Gem_Score~IMDb_Score, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Hidden_Gem_Score,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+
+
+
+#add predictions as new column
+testdf$Hidden_Gem_Score_Ext<-testdf$Hidden_Gem_Score
+testdf$Hidden_Gem_Score_Ext[is.na(testdf$Hidden_Gem_Score_Ext)] <- test_predictions[is.na(testdf$Hidden_Gem_Score)]
+testdf$Hidden_Gem_Score[is.na(testdf$Hidden_Gem_Score)] <- 0
+
+#plot prediction
+model <- lm(Hidden_Gem_Score~IMDb_Score, data=testdf)
+#Add predictions 
+pred.int <- predict(model, interval = "prediction")
+mydata <- cbind(testdf, pred.int)
+#Regression line of prediction
+p <- ggplot(mydata, aes(Hidden_Gem_Score_Ext, IMDb_Score)) +
+  geom_point() +
+  stat_smooth(method = lm)
+# 3. Add prediction intervals
+p + geom_line(aes(y = lwr), color = "red", linetype = "dashed")+
+    geom_line(aes(y = upr), color = "red", linetype = "dashed")+
+  ggtitle("Prediction results")
+```
+
+## Calculate stats for Test Data
+```{r}
+
+#calculate MSE
+mean((testdf$Hidden_Gem_Score - testdf$Hidden_Gem_Score_Ext)^2)
+test_MSE<-mse(testdf$Hidden_Gem_Score, predict(test_model , testdf))
+test_MSE
+
+#calculate RMSE
+test_RMSE<-RMSE(testdf$Hidden_Gem_Score, testdf$Hidden_Gem_Score_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Hidden_Gem_Score, Hidden_Gem_Score_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Hidden_Gem_Score, Hidden_Gem_Score_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#Hidden_Gem_Score_Ext
+data_country <- df_merge[, c("country_1","Hidden_Gem_Score_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+#Hidden_Gem_Score_Ext vs. IMDb_Score
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge2$Hidden_Gem_Score_Ext - df_merge2$IMDb_Score
+data_country <- df_merge2[, c("country_1","Variance")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+#Hidden_Gem_Score_Ext vs. Rotten_Tomatoes_Score_Ext
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge2$Hidden_Gem_Score_Ext - df_merge2$Rotten_Tomatoes_Score_Ext
+data_country <- df_merge2[, c("country_1","Variance")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+```
+## By Genre
+```{r}
+
+#Hidden_Gem_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Hidden_Gem_Score_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+#Hidden_Gem_Score_Ext vs. IMDb_Score
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge2$Hidden_Gem_Score_Ext - df_merge2$IMDb_Score
+data_genre <- df_merge2[, c("genres_x_1","Variance")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+#Hidden_Gem_Score_Ext vs. Rotten_Tomatoes_Score_Ext
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge2$Hidden_Gem_Score_Ext - df_merge2$Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge2[, c("genres_x_1","Variance")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Hidden_Gem_Score_Ext
+data_year <- df_merge[, c("Release_year","Hidden_Gem_Score_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+#Hidden_Gem_Score_Ext vs. IMDb_Score
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge2$Hidden_Gem_Score_Ext - df_merge2$IMDb_Score
+data_year <- df_merge2[, c("Release_year","Variance")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+#Hidden_Gem_Score_Ext vs. Rotten_Tomatoes_Score_Ext
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge2$Hidden_Gem_Score_Ext - df_merge2$Rotten_Tomatoes_Score_Ext
+data_year <- df_merge2[, c("Release_year","Variance")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+```
+
+
+```{r}
+#merge test and train datasets for next analysis
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_4.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+# Model 3: Metacritic score Model
+
+
+
+
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_4.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+```
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+
+#since rotten tomatoes scores and IMDb scores are off by a facotr of 10, we will divide the Rotten Tomatoes scores by 10, so they are on the same scale
+traindf$Metacritic_Score <- as.numeric(traindf$Metacritic_Score) / 10
+
+
+#Metacritic_Score - Training Data
+
+train_model<-lm(Metacritic_Score~Rotten_Tomatoes_Score_Ext, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Metacritic_Score,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Metacritic_Score_Ext<-traindf$Metacritic_Score
+traindf$Metacritic_Score_Ext[is.na(traindf$Metacritic_Score_Ext)] <- train_predictions[is.na(traindf$Metacritic_Score)]
+traindf$Metacritic_Score[is.na(traindf$Metacritic_Score)] <- 0
+
+
+```
+
+## Caclulate stats for Train Data
+```{r}
+
+#calculate MSE
+train_MSE<-mean((traindf$Metacritic_Score - traindf$Metacritic_Score_Ext)^2)
+train_MSE
+
+#calculate RMSE
+RMSE(traindf$Metacritic_Score, traindf$Metacritic_Score_Ext)
+train_RMSE<-RMSE(traindf$Metacritic_Score, traindf$Metacritic_Score_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Metacritic_Score, Metacritic_Score_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Metacritic_Score, Metacritic_Score_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+#create the linear regression - since IMDb score is the keystone of our analysis, and since it is the most robust data source, we will use this as the basis for our predictions. However, since Metacritic score is comprised of both rotten totmatoes score and imdb score, we can use both of these in our regression.
+
+#since rotten tomatoes scores and IMDb scores are off by a facotr of 10, we will divide the Rotten Tomatoes scores by 10, so they are on the same scale
+testdf$Metacritic_Score <- as.numeric(testdf$Metacritic_Score) / 10
+
+
+#Metacritic_Score - testing Data
+
+test_model<-lm(Metacritic_Score~Rotten_Tomatoes_Score_Ext, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Metacritic_Score,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+testdf$Metacritic_Score_Ext<-testdf$Metacritic_Score
+testdf$Metacritic_Score_Ext[is.na(testdf$Metacritic_Score_Ext)] <- test_predictions[is.na(testdf$Metacritic_Score)]
+testdf$Metacritic_Score[is.na(testdf$Metacritic_Score)] <- 0
+
+
+```
+
+## Caclulate stats for test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Metacritic_Score - testdf$Metacritic_Score_Ext)^2)
+test_MSE
+
+#calculate RMSE
+test_RMSE<-RMSE(testdf$Metacritic_Score, testdf$Metacritic_Score_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Metacritic_Score, Metacritic_Score_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Metacritic_Score, Metacritic_Score_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#Metacritic_Score_Ext
+data_country <- df_merge[, c("country_1","Metacritic_Score_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+
+#Metacritic_Score_Ext vs. Rotten_Tomatoes_Score_Ext
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$Rotten_Tomatoes_Score_Ext
+data_country <- df_merge2[, c("country_1","Variance")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+
+```
+## By Genre
+```{r}
+
+#Metacritic_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Metacritic_Score_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+
+
+#Metacritic_Score_Ext vs. Rotten_Tomatoes_Score_Ext
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge2[, c("genres_x_1","Variance")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Metacritic_Score_Ext
+data_year <- df_merge[, c("Release_year","Metacritic_Score_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+#Metacritic_Score_Ext vs. Rotten_Tomatoes_Score_Ext
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$Rotten_Tomatoes_Score_Ext
+data_year <- df_merge2[, c("Release_year","Variance")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+
+```
+
+
+```{r}
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_5.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+# Model 4: Metacritic score"
+
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_4.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+```
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+
+#since rotten tomatoes scores and IMDb scores are off by a facotr of 10, we will divide the Rotten Tomatoes scores by 10, so they are on the same scale
+traindf$Metacritic_Score <- as.numeric(traindf$Metacritic_Score) / 10
+
+
+#Metacritic_Score - Training Data
+
+train_model<-lm(Metacritic_Score~IMDb_Score, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Metacritic_Score,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Metacritic_Score_Ext<-traindf$Metacritic_Score
+traindf$Metacritic_Score_Ext[is.na(traindf$Metacritic_Score_Ext)] <- train_predictions[is.na(traindf$Metacritic_Score)]
+traindf$Metacritic_Score[is.na(traindf$Metacritic_Score)] <- 0
+
+
+```
+
+## Caclulate stats for Train Data
+```{r}
+
+#calculate MSE
+train_MSE<-mean((traindf$Metacritic_Score - traindf$Metacritic_Score_Ext)^2)
+train_MSE
+
+#calculate RMSE
+RMSE(traindf$Metacritic_Score, traindf$Metacritic_Score_Ext)
+train_RMSE<-RMSE(traindf$Metacritic_Score, traindf$Metacritic_Score_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Metacritic_Score, Metacritic_Score_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Metacritic_Score, Metacritic_Score_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+#create the linear regression - since IMDb score is the keystone of our analysis, and since it is the most robust data source, we will use this as the basis for our predictions. However, since Metacritic score is comprised of both rotten totmatoes score and imdb score, we can use both of these in our regression.
+
+#since rotten tomatoes scores and IMDb scores are off by a facotr of 10, we will divide the Rotten Tomatoes scores by 10, so they are on the same scale
+testdf$Metacritic_Score <- as.numeric(testdf$Metacritic_Score) / 10
+
+
+#Metacritic_Score - testing Data
+
+test_model<-lm(Metacritic_Score~IMDb_Score, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Metacritic_Score,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+testdf$Metacritic_Score_Ext<-testdf$Metacritic_Score
+testdf$Metacritic_Score_Ext[is.na(testdf$Metacritic_Score_Ext)] <- test_predictions[is.na(testdf$Metacritic_Score)]
+testdf$Metacritic_Score[is.na(testdf$Metacritic_Score)] <- 0
+
+
+```
+
+## Caclulate stats for test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Metacritic_Score - testdf$Metacritic_Score_Ext)^2)
+test_MSE
+
+#calculate RMSE
+test_RMSE<-RMSE(testdf$Metacritic_Score, testdf$Metacritic_Score_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Metacritic_Score, Metacritic_Score_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Metacritic_Score, Metacritic_Score_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#Metacritic_Score_Ext
+data_country <- df_merge[, c("country_1","Metacritic_Score_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+
+#Metacritic_Score_Ext vs. IMDb
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$Rotten_Tomatoes_Score_Ext
+data_country <- df_merge2[, c("country_1","Variance")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+
+```
+## By Genre
+```{r}
+
+#Metacritic_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Metacritic_Score_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+
+
+#Metacritic_Score_Ext vs. IMDb
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge2[, c("genres_x_1","Variance")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Metacritic_Score_Ext
+data_year <- df_merge[, c("Release_year","Metacritic_Score_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+#Metacritic_Score_Ext vs. IMDb
+
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$Rotten_Tomatoes_Score_Ext
+data_year <- df_merge2[, c("Release_year","Variance")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+
+```
+
+
+```{r}
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_5.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+
+# Model 5: Metacritic score"
+
+
+
+
+
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_4.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+```
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+#create the linear regression - since IMDb score is the keystone of our analysis, and since it is the most robust data source, we will use this as the basis for our predictions. However, since Metacritic score is comprised of both rotten totmatoes score and imdb score, we can use both of these in our regression.
+
+#since rotten tomatoes scores and IMDb scores are off by a facotr of 10, we will divide the Rotten Tomatoes scores by 10, so they are on the same scale
+traindf$Metacritic_Score <- as.numeric(traindf$Metacritic_Score) / 10
+
+
+#Metacritic_Score - Training Data
+
+train_model<-lm(Metacritic_Score~IMDb_Score+Rotten_Tomatoes_Score_Ext, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Metacritic_Score,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Metacritic_Score_Ext<-traindf$Metacritic_Score
+traindf$Metacritic_Score_Ext[is.na(traindf$Metacritic_Score_Ext)] <- train_predictions[is.na(traindf$Metacritic_Score)]
+traindf$Metacritic_Score[is.na(traindf$Metacritic_Score)] <- 0
+
+
+```
+
+## Caclulate stats for Train Data
+```{r}
+
+#calculate MSE
+train_MSE<-mean((traindf$Metacritic_Score - traindf$Metacritic_Score_Ext)^2)
+train_MSE
+
+#calculate RMSE
+train_RMSE<-RMSE(traindf$Metacritic_Score, traindf$Metacritic_Score_Ext)
+RMSE(traindf$Metacritic_Score, traindf$Metacritic_Score_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Metacritic_Score, Metacritic_Score_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Metacritic_Score, Metacritic_Score_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+#create the linear regression - since IMDb score is the keystone of our analysis, and since it is the most robust data source, we will use this as the basis for our predictions. However, since Metacritic score is comprised of both rotten totmatoes score and imdb score, we can use both of these in our regression.
+
+#since rotten tomatoes scores and IMDb scores are off by a facotr of 10, we will divide the Rotten Tomatoes scores by 10, so they are on the same scale
+testdf$Metacritic_Score <- as.numeric(testdf$Metacritic_Score) / 10
+
+
+#Metacritic_Score - testing Data
+
+test_model<-lm(Metacritic_Score~IMDb_Score+Rotten_Tomatoes_Score_Ext, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Metacritic_Score,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+testdf$Metacritic_Score_Ext<-testdf$Metacritic_Score
+testdf$Metacritic_Score_Ext[is.na(testdf$Metacritic_Score_Ext)] <- test_predictions[is.na(testdf$Metacritic_Score)]
+testdf$Metacritic_Score[is.na(testdf$Metacritic_Score)] <- 0
+
+
+```
+
+## Caclulate stats for test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Metacritic_Score - testdf$Metacritic_Score_Ext)^2)
+test_MSE
+
+#calculate RMSE
+test_RMSE<-RMSE(testdf$Metacritic_Score, testdf$Metacritic_Score_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Metacritic_Score, Metacritic_Score_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Metacritic_Score, Metacritic_Score_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#Metacritic_Score_Ext
+data_country <- df_merge[, c("country_1","Metacritic_Score_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+#Metacritic_Score_Ext vs. IMDb_Score
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$IMDb_Score
+data_country <- df_merge2[, c("country_1","Variance")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+#Metacritic_Score_Ext vs. Rotten_Tomatoes_Score_Ext
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$Rotten_Tomatoes_Score_Ext
+data_country <- df_merge2[, c("country_1","Variance")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+
+```
+## By Genre
+```{r}
+
+#Metacritic_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Metacritic_Score_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+#Metacritic_Score_Ext vs. IMDb_Score
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$IMDb_Score
+data_genre <- df_merge2[, c("genres_x_1","Variance")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+#Metacritic_Score_Ext vs. Rotten_Tomatoes_Score_Ext
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge2[, c("genres_x_1","Variance")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Metacritic_Score_Ext
+data_year <- df_merge[, c("Release_year","Metacritic_Score_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+#Metacritic_Score_Ext vs. IMDb_Score
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$IMDb_Score
+data_year <- df_merge2[, c("Release_year","Variance")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+#Rotten_Tomatoes_Score_Ext vs. IMDb_Score
+
+df_merge2<-df_merge
+df_merge2$Variance = df_merge$Metacritic_Score_Ext - df_merge$Rotten_Tomatoes_Score_Ext
+data_year <- df_merge2[, c("Release_year","Variance")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+
+```
+
+
+```{r}
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_5.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+
+# Model 6: Awards Received"
+
+
+
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_5.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+```
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+
+
+#Awards_Received - Training Data
+
+train_model<-lm(Awards_Received~IMDb_Score, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Awards_Received,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Awards_Received_Ext<-traindf$Awards_Received
+traindf$Awards_Received_Ext[is.na(traindf$Awards_Received_Ext)] <- train_predictions[is.na(traindf$Awards_Received)]
+traindf$Awards_Received[is.na(traindf$Awards_Received)] <- 0
+
+```
+
+## Caclulate stats for Train Data
+
+```{r}
+#calculate MSE
+train_MSE<-mean((traindf$Awards_Received - traindf$Awards_Received_Ext)^2)
+train_MSE
+
+#calculate RMSE
+RMSE(traindf$Awards_Received, traindf$Awards_Received_Ext)
+train_RMSE<-RMSE(traindf$Awards_Received, traindf$Awards_Received_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Awards_Received, Awards_Received_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Awards_Received, Awards_Received_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+
+#Awards_Received - testing Data
+
+test_model<-lm(Awards_Received~IMDb_Score, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Awards_Received,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+testdf$Awards_Received_Ext<-testdf$Awards_Received
+testdf$Awards_Received_Ext[is.na(testdf$Awards_Received_Ext)] <- test_predictions[is.na(testdf$Awards_Received)]
+testdf$Awards_Received[is.na(testdf$Awards_Received)] <- 0
+
+
+```
+
+## Caclulate stats for test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Awards_Received - testdf$Awards_Received_Ext)^2)
+test_MSE
+
+#calculate RMSE
+RMSE(testdf$Awards_Received, testdf$Awards_Received_Ext)
+test_RMSE<-RMSE(testdf$Awards_Received, testdf$Awards_Received_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Awards_Received, Awards_Received_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Awards_Received, Awards_Received_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#if negative change to 0
+df_merge$Awards_Received_Ext[df_merge$Awards_Received_Ext < 0] <- 0.00000001
+
+#Awards_Received_Ext
+data_country <- df_merge[, c("country_1","Awards_Received_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+```
+## By Genre
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Awards_Received_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_year <- df_merge[, c("Release_year","Awards_Received_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+```
+
+
+```{r}
+
+
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_6.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+
+# Model 7: Awards Received"
+
+
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_5.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+```
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+
+
+#Awards_Received - Training Data
+
+train_model<-lm(Awards_Received~IMDb_Score, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Awards_Received,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Awards_Received_Ext<-traindf$Awards_Received
+traindf$Awards_Received_Ext[is.na(traindf$Awards_Received_Ext)] <- train_predictions[is.na(traindf$Awards_Received)]
+traindf$Awards_Received[is.na(traindf$Awards_Received)] <- 0
+
+```
+
+## Caclulate stats for Train Data
+
+```{r}
+#calculate MSE
+train_MSE<-mean((traindf$Awards_Received - traindf$Awards_Received_Ext)^2)
+train_MSE
+
+#calculate RMSE
+RMSE(traindf$Awards_Received, traindf$Awards_Received_Ext)
+train_RMSE<-RMSE(traindf$Awards_Received, traindf$Awards_Received_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Awards_Received, Awards_Received_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Awards_Received, Awards_Received_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+
+#Awards_Received - testing Data
+
+test_model<-lm(Awards_Received~IMDb_Score, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Awards_Received,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+testdf$Awards_Received_Ext<-testdf$Awards_Received
+testdf$Awards_Received_Ext[is.na(testdf$Awards_Received_Ext)] <- test_predictions[is.na(testdf$Awards_Received)]
+testdf$Awards_Received[is.na(testdf$Awards_Received)] <- 0
+
+
+```
+
+## Caclulate stats for test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Awards_Received - testdf$Awards_Received_Ext)^2)
+test_MSE
+
+#calculate RMSE
+RMSE(testdf$Awards_Received, testdf$Awards_Received_Ext)
+test_RMSE<-RMSE(testdf$Awards_Received, testdf$Awards_Received_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Awards_Received, Awards_Received_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Awards_Received, Awards_Received_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#if negative change to 0
+df_merge$Awards_Received_Ext[df_merge$Awards_Received_Ext < 0] <- 0.00000001
+
+#Awards_Received_Ext
+data_country <- df_merge[, c("country_1","Awards_Received_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+```
+## By Genre
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Awards_Received_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_year <- df_merge[, c("Release_year","Awards_Received_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+```
+
+
+```{r}
+
+
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_6.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+# Model 8:  Awards Received"
+
+
+
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_5.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+```
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+
+
+#Awards_Received - Training Data
+
+train_model<-lm(Awards_Received~IMDb_Score+Rotten_Tomatoes_Score_Ext, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Awards_Received,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Awards_Received_Ext<-traindf$Awards_Received
+traindf$Awards_Received_Ext[is.na(traindf$Awards_Received_Ext)] <- train_predictions[is.na(traindf$Awards_Received)]
+traindf$Awards_Received[is.na(traindf$Awards_Received)] <- 0
+
+```
+
+## Caclulate stats for Train Data
+
+```{r}
+#calculate MSE
+train_MSE<-mean((traindf$Awards_Received - traindf$Awards_Received_Ext)^2)
+train_MSE
+
+#calculate RMSE
+RMSE(traindf$Awards_Received, traindf$Awards_Received_Ext)
+train_RMSE<-RMSE(traindf$Awards_Received, traindf$Awards_Received_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Awards_Received, Awards_Received_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Awards_Received, Awards_Received_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+
+#Awards_Received - testing Data
+
+test_model<-lm(Awards_Received~IMDb_Score+Rotten_Tomatoes_Score_Ext, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Awards_Received,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+testdf$Awards_Received_Ext<-testdf$Awards_Received
+testdf$Awards_Received_Ext[is.na(testdf$Awards_Received_Ext)] <- test_predictions[is.na(testdf$Awards_Received)]
+testdf$Awards_Received[is.na(testdf$Awards_Received)] <- 0
+
+
+```
+
+## Caclulate stats for test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Awards_Received - testdf$Awards_Received_Ext)^2)
+test_MSE
+
+#calculate RMSE
+RMSE(testdf$Awards_Received, testdf$Awards_Received_Ext)
+test_RMSE<-RMSE(testdf$Awards_Received, testdf$Awards_Received_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Awards_Received, Awards_Received_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Awards_Received, Awards_Received_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#if negative change to 0
+df_merge$Awards_Received_Ext[df_merge$Awards_Received_Ext < 0] <- 0.00000001
+
+#Awards_Received_Ext
+data_country <- df_merge[, c("country_1","Awards_Received_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+```
+## By Genre
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Awards_Received_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_year <- df_merge[, c("Release_year","Awards_Received_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+```
+
+
+```{r}
+
+
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_6.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+# Model 9: Box-Office 
+
+
+## In this model, we will try to predict box office data from both IMDb Score only
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_6.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+
+```
+
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+#since box office numbers are large, we should convert them to dollars in mm
+traindf$Boxoffice_inflation <- as.numeric(traindf$Boxoffice_inflation) / 1000000
+
+#Boxoffice_inflation - Training Data
+
+train_model<-lm(Boxoffice_inflation~IMDb_Score, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Boxoffice_inflation,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Boxoffice_inflation_Ext<-traindf$Boxoffice_inflation
+traindf$Boxoffice_inflation_Ext[is.na(traindf$Boxoffice_inflation_Ext)] <- train_predictions[is.na(traindf$Boxoffice_inflation)]
+traindf$Boxoffice_inflation[is.na(traindf$Boxoffice_inflation)] <- 0
+
+#plot prediction
+model <- lm(Boxoffice_inflation~IMDb_Score, data=traindf)
+#Add predictions 
+pred.int <- predict(model, interval = "prediction")
+mydata <- cbind(traindf, pred.int)
+#Regression line of prediction
+p <- ggplot(mydata, aes(Boxoffice_inflation, IMDb_Score)) +
+  geom_point() +
+  stat_smooth(method = lm)
+# 3. Add prediction intervals
+p + geom_line(aes(y = lwr), color = "red", linetype = "dashed")+
+    geom_line(aes(y = upr), color = "red", linetype = "dashed")+
+  ggtitle("Prediction results")
+```
+
+
+## Caclulate stats for Train Data
+
+```{r}
+#calculate MSE
+train_MSE<-mean((traindf$Boxoffice_inflation - traindf$Boxoffice_inflation_Ext)^2)
+train_MSE
+
+#calculate RMSE
+RMSE(traindf$Boxoffice_inflation, traindf$Boxoffice_inflation_Ext)
+train_RMSE<-RMSE(traindf$Boxoffice_inflation, traindf$Boxoffice_inflation_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Boxoffice_inflation, Boxoffice_inflation_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Boxoffice_inflation, Boxoffice_inflation_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+#since box office numbers are large, we should convert them to dollars in mm
+testdf$Boxoffice_inflation <- as.numeric(testdf$Boxoffice_inflation) / 1000000
+
+#Boxoffice_inflation - testing Data
+
+test_model<-lm(Boxoffice_inflation~IMDb_Score, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Boxoffice_inflation,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+testdf$Boxoffice_inflation_Ext<-testdf$Boxoffice_inflation
+testdf$Boxoffice_inflation_Ext[is.na(testdf$Boxoffice_inflation_Ext)] <- test_predictions[is.na(testdf$Boxoffice_inflation)]
+testdf$Boxoffice_inflation[is.na(testdf$Boxoffice_inflation)] <- 0
+
+#plot prediction
+model <- lm(Boxoffice_inflation~IMDb_Score, data=testdf)
+#Add predictions 
+pred.int <- predict(model, interval = "prediction")
+mydata <- cbind(testdf, pred.int)
+#Regression line of prediction
+p <- ggplot(mydata, aes(Boxoffice_inflation, IMDb_Score)) +
+  geom_point() +
+  stat_smooth(method = lm)
+# 3. Add prediction intervals
+p + geom_line(aes(y = lwr), color = "red", linetype = "dashed")+
+    geom_line(aes(y = upr), color = "red", linetype = "dashed")+
+  ggtitle("Prediction results")
+```
+
+
+## Caclulate stats for test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Boxoffice_inflation - testdf$Boxoffice_inflation_Ext)^2)
+
+test_MSE
+
+#calculate RMSE
+RMSE(testdf$Boxoffice_inflation, testdf$Boxoffice_inflation_Ext)
+test_RMSE<-RMSE(testdf$Boxoffice_inflation, testdf$Boxoffice_inflation_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Boxoffice_inflation, Boxoffice_inflation_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Boxoffice_inflation, Boxoffice_inflation_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#Boxoffice_inflation_Ext
+data_country <- df_merge[, c("country_1","Boxoffice_inflation_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+```
+## By Genre
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Boxoffice_inflation_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_year <- df_merge[, c("Release_year","Boxoffice_inflation_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+```
+
+
+```{r}
+names(df_merge)[names(df_merge) == "Boxoffice_inflation_Ext"] <- "Box_Model1"
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_7.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+# Model 10: Box-Office 
+
+## In this model, we will try to predict box office data from both IMDb Score and Rotten Tomatoes Score
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_6.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+
+```
+
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+#since box office numbers are large, we should convert them to dollars in mm
+traindf$Boxoffice_inflation <- as.numeric(traindf$Boxoffice_inflation) / 1000000
+
+#Boxoffice_inflation - Training Data
+
+train_model<-lm(Boxoffice_inflation~IMDb_Score+Rotten_Tomatoes_Score_Ext, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Boxoffice_inflation,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Boxoffice_inflation_Ext<-traindf$Boxoffice_inflation
+traindf$Boxoffice_inflation_Ext[is.na(traindf$Boxoffice_inflation_Ext)] <- train_predictions[is.na(traindf$Boxoffice_inflation)]
+traindf$Boxoffice_inflation[is.na(traindf$Boxoffice_inflation)] <- 0
+
+```
+
+## Caclulate stats for Train Data
+
+```{r}
+#calculate MSE
+train_MSE<-mean((traindf$Boxoffice_inflation - traindf$Boxoffice_inflation_Ext)^2)
+train_MSE
+
+#calculate RMSE
+RMSE(traindf$Boxoffice_inflation, traindf$Boxoffice_inflation_Ext)
+train_RMSE<-RMSE(traindf$Boxoffice_inflation, traindf$Boxoffice_inflation_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Boxoffice_inflation, Boxoffice_inflation_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Boxoffice_inflation, Boxoffice_inflation_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+#since box office numbers are large, we should convert them to dollars in mm
+testdf$Boxoffice_inflation <- as.numeric(testdf$Boxoffice_inflation) / 1000000
+
+#Boxoffice_inflation - testing Data
+
+test_model<-lm(Boxoffice_inflation~IMDb_Score+Rotten_Tomatoes_Score_Ext, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Boxoffice_inflation,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+testdf$Boxoffice_inflation_Ext<-testdf$Boxoffice_inflation
+testdf$Boxoffice_inflation_Ext[is.na(testdf$Boxoffice_inflation_Ext)] <- test_predictions[is.na(testdf$Boxoffice_inflation)]
+testdf$Boxoffice_inflation[is.na(testdf$Boxoffice_inflation)] <- 0
+
+
+```
+
+## Caclulate stats for test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Boxoffice_inflation - testdf$Boxoffice_inflation_Ext)^2)
+
+test_MSE
+
+#calculate RMSE
+RMSE(testdf$Boxoffice_inflation, testdf$Boxoffice_inflation_Ext)
+test_RMSE<-RMSE(testdf$Boxoffice_inflation, testdf$Boxoffice_inflation_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Boxoffice_inflation, Boxoffice_inflation_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Boxoffice_inflation, Boxoffice_inflation_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#Boxoffice_inflation_Ext
+data_country <- df_merge[, c("country_1","Boxoffice_inflation_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+```
+## By Genre
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Boxoffice_inflation_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_year <- df_merge[, c("Release_year","Boxoffice_inflation_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+```
+
+
+```{r}
+
+names(df_merge)[names(df_merge) == "Boxoffice_inflation_Ext"] <- "Box_Model2"
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_7.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+# Model 11: Box-Office 
+
+## In this model, we will try to predict box office data from both IMDb Score, Rotten Tomatoes Score, and Metacritic Score
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_6.csv")
+data_new <- data.frame(data_new)
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+
+```
+
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+#since box office numbers are large, we should convert them to dollars in mm
+traindf$Boxoffice_inflation <- as.numeric(traindf$Boxoffice_inflation) / 1000000
+
+#Boxoffice_inflation - Training Data
+
+train_model<-lm(Boxoffice_inflation~IMDb_Score+Rotten_Tomatoes_Score_Ext+Metacritic_Score, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Boxoffice_inflation,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Boxoffice_inflation_Ext<-traindf$Boxoffice_inflation
+traindf$Boxoffice_inflation_Ext[is.na(traindf$Boxoffice_inflation_Ext)] <- train_predictions[is.na(traindf$Boxoffice_inflation)]
+traindf$Boxoffice_inflation[is.na(traindf$Boxoffice_inflation)] <- 0
+
+```
+
+## Caclulate stats for Train Data
+
+```{r}
+#calculate MSE
+train_MSE<-mean((traindf$Boxoffice_inflation - traindf$Boxoffice_inflation_Ext)^2)
+
+train_MSE
+
+#calculate RMSE
+RMSE(traindf$Boxoffice_inflation, traindf$Boxoffice_inflation_Ext)
+train_RMSE<-RMSE(traindf$Boxoffice_inflation, traindf$Boxoffice_inflation_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Boxoffice_inflation, Boxoffice_inflation_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Boxoffice_inflation, Boxoffice_inflation_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+#since box office numbers are large, we should convert them to dollars in mm
+testdf$Boxoffice_inflation <- as.numeric(testdf$Boxoffice_inflation) / 1000000
+
+#Boxoffice_inflation - testing Data
+
+test_model<-lm(Boxoffice_inflation~IMDb_Score+Rotten_Tomatoes_Score_Ext+Metacritic_Score, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Boxoffice_inflation,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+testdf$Boxoffice_inflation_Ext<-testdf$Boxoffice_inflation
+testdf$Boxoffice_inflation_Ext[is.na(testdf$Boxoffice_inflation_Ext)] <- test_predictions[is.na(testdf$Boxoffice_inflation)]
+testdf$Boxoffice_inflation[is.na(testdf$Boxoffice_inflation)] <- 0
+
+
+```
+
+## Caclulate stats for test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Boxoffice_inflation - testdf$Boxoffice_inflation_Ext)^2)
+test_MSE
+
+#calculate RMSE
+RMSE(testdf$Boxoffice_inflation, testdf$Boxoffice_inflation_Ext)
+test_RMSE<-RMSE(testdf$Boxoffice_inflation, testdf$Boxoffice_inflation_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Boxoffice_inflation, Boxoffice_inflation_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Boxoffice_inflation, Boxoffice_inflation_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#Boxoffice_inflation_Ext
+data_country <- df_merge[, c("country_1","Boxoffice_inflation_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+```
+## By Genre
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Boxoffice_inflation_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_year <- df_merge[, c("Release_year","Boxoffice_inflation_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+```
+
+
+```{r}
+names(df_merge)[names(df_merge) == "Boxoffice_inflation_Ext"] <- "Box_Model3"
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_7.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+# Model 12: Box-Office 
+
+
+## In this model, we will try to predict box office data from both IMDb Score, Rotten Tomatoes Score, and Metacritic Score and if the title recieved an award or not
+## Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Load the packages
+Since there are multiple data fields that will be a significant component of this analysis, we will need to make some assumptions about missing data We can later choose to use this data or not, however we can at least make it available.
+```{r}
+packageload <- c("tidyverse","kableExtra","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc","caret","pROC","glm2","ISLR","dplyr","tidyr","Metrics","MLmetrics","ggplot2","mgcv","reshape2","ggrepel","vtable","gridExtra","parameters","performance","modelbased","plotly","qqplotr")
+pacman::p_load(char = packageload)
+
+#define functions
+ggplotRegression <- function (fit) {
+require(ggplot2)
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+  
+```
+
+## Split sets into trainings and test
+```{r}
+###load data
+setwd("~/R/Netflix")
+data_new <- fread("Merged_Dataset_6.csv")
+data_new <- data.frame(data_new)
+
+# add new column for if award rec and if not 0 then 1 - assume that NAs are 0 and did not rec an award
+data_new$Award_Rec_ON<-data_new$Awards_Received
+
+data_new$Award_Rec_ON[is.na(data_new$Award_Rec_ON)] <- 0
+data_new$Award_Rec_ON <- as.numeric(data_new$Award_Rec_ON > 0)
+
+#create sets
+n = nrow(data_new)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = data_new[trainIndex ,]
+testdf = data_new[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(data_new)
+nrow(testdf)/nrow(data_new)
+
+
+
+
+```
+
+# Train Data
+
+## Create a linear regression prediction
+```{r}
+#since box office numbers are large, we should convert them to dollars in mm
+traindf$Boxoffice_inflation <- as.numeric(traindf$Boxoffice_inflation) / 1000000
+
+#Boxoffice_inflation - Training Data
+
+train_model<-lm(Boxoffice_inflation~IMDb_Score+Rotten_Tomatoes_Score_Ext+Metacritic_Score+Award_Rec_ON, data=traindf)
+train_model<-lm(Boxoffice_inflation~IMDb_Score+Rotten_Tomatoes_Score_Ext+Metacritic_Score+Award_Rec_ON, data=traindf)
+summary(train_model)
+plot(train_model, 1)
+
+#create predictions
+train_predictions <- round(predict(train_model, newdata = traindf), 2)
+summary(train_predictions)
+summary(train_predictions)
+
+plot(x=train_predictions, y=traindf$Boxoffice_inflation,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+traindf$Boxoffice_inflation_Ext<-traindf$Boxoffice_inflation
+traindf$Boxoffice_inflation_Ext[is.na(traindf$Boxoffice_inflation_Ext)] <- train_predictions[is.na(traindf$Boxoffice_inflation)]
+traindf$Boxoffice_inflation[is.na(traindf$Boxoffice_inflation)] <- 0
+
+```
+
+## Caclulate stats for Train Data
+
+```{r}
+#calculate MSE
+train_MSE<-mean((traindf$Boxoffice_inflation - traindf$Boxoffice_inflation_Ext)^2)
+train_MSE
+
+#calculate RMSE
+RMSE(traindf$Boxoffice_inflation, traindf$Boxoffice_inflation_Ext)
+train_RMSE<-RMSE(traindf$Boxoffice_inflation, traindf$Boxoffice_inflation_Ext)
+train_RMSE
+
+#ROC
+train_ROC<-roc(traindf,Boxoffice_inflation, Boxoffice_inflation_Ext)
+train_ROC
+train_ROC_2<-roc(traindf,Boxoffice_inflation, Boxoffice_inflation_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+train_ROC_2
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Test Data
+
+## Create a linear regression prediction
+```{r}
+
+#since box office numbers are large, we should convert them to dollars in mm
+testdf$Boxoffice_inflation <- as.numeric(testdf$Boxoffice_inflation) / 1000000
+
+#Boxoffice_inflation - testing Data
+
+test_model<-lm(Boxoffice_inflation~IMDb_Score+Rotten_Tomatoes_Score_Ext+Metacritic_Score+Award_Rec_ON, data=testdf)
+summary(test_model)
+plot(test_model, 1)
+
+#create predictions
+test_predictions <- round(predict(test_model, newdata = testdf), 2)
+summary(test_predictions)
+summary(test_predictions)
+
+plot(x=test_predictions, y=testdf$Boxoffice_inflation,
+     xlab='Predicted Values',
+     ylab='Actual Values',
+     main='Predicted vs. Actual Values',abline(a=0, b=1))
+
+#add predictions as new column
+testdf$Boxoffice_inflation_Ext<-testdf$Boxoffice_inflation
+testdf$Boxoffice_inflation_Ext[is.na(testdf$Boxoffice_inflation_Ext)] <- test_predictions[is.na(testdf$Boxoffice_inflation)]
+testdf$Boxoffice_inflation[is.na(testdf$Boxoffice_inflation)] <- 0
+
+
+```
+
+## Caclulate stats for test Data
+```{r}
+
+#calculate MSE
+test_MSE<-mean((testdf$Boxoffice_inflation - testdf$Boxoffice_inflation_Ext)^2)
+test_MSE
+
+#calculate RMSE
+RMSE(testdf$Boxoffice_inflation, testdf$Boxoffice_inflation_Ext)
+test_RMSE<-RMSE(testdf$Boxoffice_inflation, testdf$Boxoffice_inflation_Ext)
+test_RMSE
+
+#ROC
+test_ROC<-roc(testdf,Boxoffice_inflation, Boxoffice_inflation_Ext)
+test_ROC
+test_ROC_2<-roc(testdf,Boxoffice_inflation, Boxoffice_inflation_Ext,
+              smoothed = TRUE,
+              # arguments for ci
+              ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+              # arguments for plot
+              plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+              print.auc=TRUE, show.thres=TRUE)
+test_ROC_2
+
+```
+
+# Compare training vs test data
+```{r}
+
+#Regression Charts
+
+#train Model
+ggplotRegression(train_model)
+
+"Test Model"
+ggplotRegression(test_model)
+
+#Prediction Results
+
+check <- check_normality(train_model)
+plot(check, type = "qq", main="Train Model")
+
+check <- check_normality(test_model)
+plot(check, type = "qq", main="Test Model")
+
+predicted_plot1 <- estimate_expectation(train_model, data = "grid")
+plot(predicted_plot1)
+
+predicted_plot1 <- estimate_expectation(test_model, data = "grid")
+plot(predicted_plot1)
+
+plot(parameters(test_model))
+
+cat("Train Model R2: ",summary(train_model)$r.squared)
+cat("Test Model R2: ",summary(test_model)$r.squared)
+cat("Train Model MSE: ",train_MSE)
+cat("Test Model MSE: ",test_MSE)
+cat("Train Model RMSE: ",train_RMSE)
+cat("Test Model RMSE: ",test_RMSE)
+cat("Train Model AUC: ",train_ROC$auc)
+cat("Test Model AUC: ",test_ROC$auc)
+
+
+
+
+
+```
+
+#---------------------------------------------------------------------------------------------------'
+
+# Other Results
+
+## By Country
+```{r}
+
+#merge test and train datasets for next analysis
+df_merge <- rbind(traindf,testdf)
+
+#Boxoffice_inflation_Ext
+data_country <- df_merge[, c("country_1","Boxoffice_inflation_Ext")]
+st(data_country, group = 'country_1', group.long = TRUE)
+
+
+```
+## By Genre
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_genre <- df_merge[, c("genres_x_1","Boxoffice_inflation_Ext")]
+st(data_genre, group = 'genres_x_1', group.long = TRUE)
+
+
+```
+
+## By Release_year
+```{r}
+
+#Rotten_Tomatoes_Score_Ext
+data_year <- df_merge[, c("Release_year","Boxoffice_inflation_Ext")]
+st(data_year, group = 'Release_year', group.long = TRUE)
+
+
+```
+
+
+```{r}
+names(df_merge)[names(df_merge) == "Boxoffice_inflation_Ext"] <- "Box_Model4"
+
+fwrite(df_merge,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_7.csv", row.names = FALSE)
+write.table(df_merge, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+

@@ -1,0 +1,147 @@
+---
+title: "Group 4 Project"
+output: html_document
+date: '2022-03-15'
+---
+
+
+## Part 1 - Setup and Data Cleaning
+
+Set up environment
+```{r}
+rm(list = ls())
+set.seed(123)
+```
+
+Import the data and libraries
+```{r}
+packageload <- c("tidyverse","kableExtra","plotly","lubridate","zoo","urca","base","caTools","caret","priceR","countrycode","plyr","data.table","utilsIPEA","Hmisc")
+pacman::p_load(char = packageload)
+df_netflix <- read_csv('MergedData.csv') %>% mutate(Boxoffice = parse_number(Boxoffice))
+is.numeric(df_netflix$Boxoffice)
+```
+
+Check the data
+```{r}
+head(df_netflix)
+nrow(df_netflix)
+ncol(df_netflix)
+```
+Data cleaning - remove uninformative variables
+```{r}
+
+#remove the fields we dont need
+df_netflix <- tibble::as_tibble(df_netflix) %>% 
+  select(-c("director", "cast_x","Tags","Country Availability","Writer","Actors","View Rating",	"release_date","revenue"))
+
+# check the data
+ncol(df_netflix)
+
+#fix first column name
+colnames(df_netflix)[which(names(df_netflix) == "...1")] <- "number"
+
+#show the data
+kable(df_netflix[1:18,]) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  scroll_box(width = "100%", height = "500px")
+
+#edit spaces in column headers
+names(df_netflix) <- gsub(" ", "_", names(df_netflix))
+df_netflix
+
+#since we have two date fields, and only one is being recognized as an actual date, we need to transform the format of Release Date
+#mydate <- gsub(' ', '-', df_netflix$Release_Date)
+mydate2  <- as.Date(df_netflix$Release_Date, format = "%d-%b-%y")  
+class(mydate2)
+mydate2
+df_netflix$Release_Date <-mydate2
+
+# show fields with missing data and count
+data.frame(var = c(colnames(df_netflix)), 
+           missing = sapply(df_netflix, function(x) sum(is.na(x))), row.names = NULL) %>%
+  mutate(missing = cell_spec(missing, "html", 
+                             color = ifelse(missing > 0, 'red', 'black'))) %>% 
+  dplyr::rename(`Variable` = var, `Missing Value Count` = missing) %>%
+  kable(format = "html", escape = F, align = c("l", "c")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+#backup the dataset
+fwrite(df_netflix,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_2.csv", row.names = FALSE)
+```
+
+
+
+separate fields with multiple instances 
+```{r}
+library(splitstackshape) 
+df_netflix<-cSplit(df_netflix,"genres_x",",")
+df_netflix<-cSplit(df_netflix,"country",",")
+df_netflix<-cSplit(df_netflix,"Languages",",")
+df_netflix
+```
+
+
+
+
+since we have box office data for various years, we need to adjust these for inflation
+```{r}
+# first, we need to create a new column that only displays the year of the release
+df_netflix$Release_year <- df_netflix$Release_Date
+df_netflix$Release_year <- format(as.Date(df_netflix$Release_year, format="%d/%m/%Y"),"%Y")
+
+#since cpi data is only available for 2020, we need to delete all entries that have a year greater than 2020
+df_netflix[!df_netflix$Release_year == "2021", ]
+
+
+# now we need to define the year and values, and get the real dollars of inflation adjusted box office
+Boxoffice <- df_netflix$Boxoffice
+Release_year <- df_netflix$Release_year
+data_pryr <- data.frame(Release_year, Boxoffice)
+
+kable(data_pryr[1:2]) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  scroll_box(width = "100%", height = "500px")
+
+#calculate and create new column
+library(priceR)
+is.numeric(df_netflix$Boxoffice)
+
+df_netflix$Boxoffice_inflation <-adjust_for_inflation(Boxoffice, Release_year, "US", to_date = 2020)
+
+
+```
+
+export the re factored dataset
+```{r}
+#backup the dataset
+fwrite(df_netflix,"C:\\Users\\Jonathan\\Documents\\R\\Netflix\\Merged_Dataset_2.csv", row.names = FALSE)
+write.table(df_netflix, "Merged_Table.txt", append = FALSE, sep = " ", dec = ".",
+            row.names = TRUE, col.names = TRUE)
+```
+
+
+
+Split the data between training and test
+```{r}
+
+#create sets
+n = nrow(df_netflix)
+trainIndex = sample(1:n, size = round(0.7*n), replace=FALSE)
+traindf = df_netflix[trainIndex ,]
+testdf = df_netflix[-trainIndex ,]
+
+#check percentages
+nrow(traindf) / nrow(df_netflix)
+nrow(testdf)/nrow(df_netflix)
+
+```
+
+
+
+```
+ 
+
+
+
+
+
